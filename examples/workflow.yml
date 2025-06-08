@@ -1,0 +1,53 @@
+name: Deploy and Notify Jira
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  deploy-and-notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Deploy to staging
+        # Replace this with your actual deployment steps
+        run: |
+          echo "🚀 Deploying application..."
+          # Simulate deployment
+          sleep 2
+          echo "DEPLOY_URL=https://staging-pr-${{ github.event.number }}.example.com" >> $GITHUB_ENV
+          echo "✅ Deployment completed!"
+        
+      - name: 📣 Send Deployment URL to Jira
+        uses: fordeer/send-jira-deployment-action@v1
+        with:
+          jira_base_url: ${{ secrets.JIRA_BASE_URL }}
+          jira_username: ${{ secrets.JIRA_USERNAME }}
+          jira_api_token: ${{ secrets.JIRA_API_TOKEN }}
+          deployment_url: ${{ env.DEPLOY_URL }}
+          jira_project_prefix: 'FC'
+          message_template: '🚀 [Staging Environment]({deployment_url}) is ready for testing! 🔗'
+
+  # Example with different project prefix
+  deploy-dev-environment:
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.title, 'DEV-')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Deploy to dev
+        run: |
+          echo "🔧 Deploying to dev environment..."
+          echo "DEPLOY_URL=https://dev-pr-${{ github.event.number }}.example.com" >> $GITHUB_ENV
+        
+      - name: 📣 Send Dev URL to Jira
+        uses: fordeer/send-jira-deployment-action@v1
+        with:
+          jira_base_url: ${{ secrets.JIRA_BASE_URL }}
+          jira_username: ${{ secrets.JIRA_USERNAME }}
+          jira_api_token: ${{ secrets.JIRA_API_TOKEN }}
+          deployment_url: ${{ env.DEPLOY_URL }}
+          jira_project_prefix: 'DEV'
+          message_template: '🔧 [Development Environment]({deployment_url}) deployed! 🎯'
