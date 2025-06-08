@@ -1,0 +1,135 @@
+name: 'Send Deployment URL to Jira'
+description: 'Automatically posts deployment URL to associated Jira issue based on PR title'
+author: 'Fordeer'
+
+inputs:
+  jira_base_url:
+    description: 'JIRA base URL (e.g., https://your-domain.atlassian.net)'
+    required: true
+  jira_username:
+    description: 'JIRA username/email'
+    required: true
+  jira_api_token:
+    description: 'JIRA API token'
+    required: true
+  deployment_url:
+    description: 'Deployment URL to send to Jira'
+    required: true
+  pr_title:
+    description: 'Pull Request title (defaults to GitHub PR title)'
+    required: false
+    default: ${{ github.event.pull_request.title }}
+  jira_project_prefix:
+    description: 'Jira project prefix (e.g., FC, DEV, PROJ)'
+    required: false
+    default: 'FC'
+  jira_key_pattern:
+    description: 'Custom regex pattern to extract Jira key (overrides jira_project_prefix if provided)'
+    required: false
+    default: ''
+  message_template:
+    description: 'Custom message template for Jira comment'
+    required: false
+    default: '🚀 [Deployment URL]({deployment_url}) is ready for testing! 🔗'
+
+outputs:
+  jira_issue_key:
+    description: 'Extracted Jira issue key'
+    value: ${{ steps.extract_jira_key.outputs.issue_key }}
+  comment_posted:
+    description: 'Whether comment was successfully posted'
+    value: ${{ steps.post_comment.outputs.success }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: "🔍 Extract Jira Issue Key"
+      id: extract_jira_key
+      shell: bash
+      run: |
+        PR_TITLE="${{ inputs.pr_title }}"
+        CUSTOM_PATTERN="${{ inputs.jira_key_pattern }}"
+        PROJECT_PREFIX="${{ inputs.jira_project_prefix }}"
+        
+        echo "🔍 Analyzing PR Title: $PR_TITLE"
+        
+        # Sử dụng custom pattern nếu có, nếu không thì dùng project prefix
+        if [ -n "$CUSTOM_PATTERN" ]; then
+          PATTERN="$CUSTOM_PATTERN"
+          echo "📋 Using custom pattern: $PATTERN"
+        else
+          # Tạo pattern từ project prefix (case-insensitive)
+          PATTERN_LOWER=$(echo "$PROJECT_PREFIX" | tr '[:upper:]' '[:lower:]')
+          PATTERN="${PATTERN_LOWER}[- ]?[0-9]+"
+          echo "📋 Using project prefix '$PROJECT_PREFIX' with pattern: $PATTERN"
+        fi
+        
+        # Trích xuất JIRA KEY và chuẩn hóa
+        JIRA_ISSUE_KEY=$(echo "$PR_TITLE" | grep -oEi "$PATTERN" | head -n1 | tr '[:lower:]' '[:upper:]' | sed 's/ /-/g' || echo "")
+        
+        if [ -z "$JIRA_ISSUE_KEY" ]; then
+          echo "⚠️ No Jira issue key found in PR title"
+          echo "💡 Expected format: $PROJECT_PREFIX-123 or ${PROJECT_PREFIX} 123"
+          echo "issue_key=" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        echo "✅ Found Jira issue key: $JIRA_ISSUE_KEY"
+        echo "issue_key=$JIRA_ISSUE_KEY" >> $GITHUB_OUTPUT
+
+    - name: "📝 Prepare Comment Message"
+      id: prepare_message
+      shell: bash
+      run: |
+        TEMPLATE="${{ inputs.message_template }}"
+        DEPLOYMENT_URL="${{ inputs.deployment_url }}"
+        
+        # Thay thế placeholder trong template
+        MESSAGE=$(echo "$TEMPLATE" | sed "s|{deployment_url}|$DEPLOYMENT_URL|g")
+        
+        echo "📝 Prepared message: $MESSAGE"
+        
+        # Escape cho JSON
+        MESSAGE_ESCAPED=$(echo "$MESSAGE" | sed 's/"/\\"/g' | sed 's/$/\\n/' | tr -d '\n' | sed 's/\\n$//')
+        echo "message_escaped=$MESSAGE_ESCAPED" >> $GITHUB_OUTPUT
+
+    - name: "📣 Post Comment to Jira"
+      id: post_comment
+      shell: bash
+      run: |
+        JIRA_ISSUE_KEY="${{ steps.extract_jira_key.outputs.issue_key }}"
+        
+        if [ -z "$JIRA_ISSUE_KEY" ]; then
+          echo "⏭️ Skipping Jira comment - no issue key found"
+          echo "success=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        echo "📤 Posting comment to Jira issue: $JIRA_ISSUE_KEY"
+        
+        RESPONSE=$(curl -s -w "\n%{http_code}" --request POST \
+          --url "${{ inputs.jira_base_url }}/rest/api/2/issue/$JIRA_ISSUE_KEY/comment" \
+          --user "${{ inputs.jira_username }}:${{ inputs.jira_api_token }}" \
+          --header 'Content-Type: application/json' \
+          --data "{
+            \"body\": \"${{ steps.prepare_message.outputs.message_escaped }}\"
+          }")
+        
+        HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+        RESPONSE_BODY=$(echo "$RESPONSE" | head -n -1)
+        
+        if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+          echo "✅ Successfully posted comment to Jira issue $JIRA_ISSUE_KEY"
+          echo "🔗 Response: $RESPONSE_BODY"
+          echo "success=true" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Failed to post comment to Jira issue $JIRA_ISSUE_KEY"
+          echo "🔥 HTTP Code: $HTTP_CODE"
+          echo "📄 Response: $RESPONSE_BODY"
+          echo "success=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+branding:
+  icon: 'message-circle'
+  color: 'blue'

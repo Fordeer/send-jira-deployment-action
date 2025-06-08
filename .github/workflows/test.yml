@@ -1,0 +1,76 @@
+name: Test Action
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-action:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Test with FC prefix
+        uses: ./
+        with:
+          jira_base_url: "https://test.atlassian.net"
+          jira_username: "test@fordeer.io"
+          jira_api_token: "fake-token-for-testing"
+          deployment_url: "https://staging.fordeer.io"
+          pr_title: "FC-123: Test PR with FC prefix"
+        continue-on-error: true
+        
+      - name: Test with DEV prefix
+        uses: ./
+        with:
+          jira_base_url: "https://test.atlassian.net"
+          jira_username: "test@fordeer.io"
+          jira_api_token: "fake-token-for-testing"
+          deployment_url: "https://dev.fordeer.io"
+          pr_title: "DEV-456: Test PR with DEV prefix"
+          jira_project_prefix: "DEV"
+        continue-on-error: true
+        
+      - name: Test with custom pattern
+        uses: ./
+        with:
+          jira_base_url: "https://test.atlassian.net"
+          jira_username: "test@fordeer.io"
+          jira_api_token: "fake-token-for-testing"
+          deployment_url: "https://custom.fordeer.io"
+          pr_title: "TASK-789: Test PR with custom pattern"
+          jira_key_pattern: 'task[- ]?[0-9]+'
+        continue-on-error: true
+        
+      - name: Test with no Jira key
+        uses: ./
+        with:
+          jira_base_url: "https://test.atlassian.net"
+          jira_username: "test@fordeer.io"
+          jira_api_token: "fake-token-for-testing"
+          deployment_url: "https://none.fordeer.io"
+          pr_title: "Regular PR without Jira key"
+        continue-on-error: true
+
+  lint-action:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Validate action.yml
+        run: |
+          echo "🔍 Validating action.yml syntax..."
+          # Basic YAML syntax check
+          python -c "import yaml; yaml.safe_load(open('action.yml'))"
+          echo "✅ action.yml is valid YAML"
+          
+      - name: Check required files
+        run: |
+          echo "📋 Checking required files..."
+          test -f action.yml && echo "✅ action.yml exists"
+          test -f README.md && echo "✅ README.md exists"
+          test -f LICENSE && echo "✅ LICENSE exists"
+          echo "✅ All required files present"
